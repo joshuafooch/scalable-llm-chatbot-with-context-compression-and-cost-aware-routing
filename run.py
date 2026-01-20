@@ -1,6 +1,7 @@
 import gradio as gr
 from router import route_query, CONFIDENCE_THRESHOLD
 from prompt import build_prompt, add_recent_message, conversation_state
+from summarizer import should_summarize, summarize_convo
 
 with gr.Blocks() as demo:
     gr.Markdown("# Cost-Aware Query Routing LLM Chatbot")
@@ -24,13 +25,27 @@ with gr.Blocks() as demo:
         return "", history + [{"role": "user", "content": message}]
 
     def get_bot_response(history: list[dict]) -> tuple[list[dict], str]:
-        user_message_content = history[-1]["content"][0]["text"] # Get last user input str
+        total_latency, total_cost = 0, 0
+
+        # Get last user input string and update to conversation state
+        user_message_content = history[-1]["content"][0]["text"]
         add_recent_message("user", user_message_content, conversation_state)
+
+        # Check length of conversation state to trigger summarization
+        if should_summarize(conversation_state):
+            summary, summary_latency, summary_cost = summarize_convo(conversation_state)
+            conversation_state["summary"] = summary
+            total_latency += summary_latency
+            total_cost += summary_cost
+            print("Summarized!")
+
         prompt = build_prompt(conversation_state)
-        print(prompt)
         
-        final_response_text, model_used, confidence_str, total_latency, total_cost = route_query(prompt)
-        
+        final_response_text, model_used, confidence_str, latency, cost, total_tokens = route_query(prompt)
+        total_latency += latency
+        total_cost += cost
+        conversation_state["total_tokens"] = total_tokens
+
         metadata = (
             f"**Model Used:** {model_used}\n\n"
             f"**Confidence Score:** {confidence_str}\n\n"
@@ -40,6 +55,7 @@ with gr.Blocks() as demo:
 
         add_recent_message("assistant", final_response_text, conversation_state)
         history.append({"role": "assistant", "content": final_response_text})
+        print(conversation_state)
         return history, metadata
 
     msg.submit(user_message, [msg, chatbot], [msg, chatbot]).then(

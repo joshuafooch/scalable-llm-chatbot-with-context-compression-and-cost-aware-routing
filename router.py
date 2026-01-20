@@ -1,8 +1,8 @@
 import time
-import json
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 from prompt import extract_json_response
+from config import MAX_NEW_TOKENS
 
 # --- Load model onto correct device ---
 def get_device():
@@ -32,14 +32,17 @@ CONFIDENCE_THRESHOLD = 0.80
 
 def model_handler(model_str: str, messages: list[dict]) -> tuple[str, float, float, float]:
     """
-    Handles a call to the LLM model.
+    Handles a call to the small/large LLM model.
+    Returns the final response, a confidence score, latency and estimated cost.
     """
     if model_str == "small":
         model = small_model
         tokenizer = small_tokenizer
+        COST = SMALL_MODEL_COST
     elif model_str == "large":
         model = large_model
         tokenizer = large_tokenizer
+        COST = LARGE_MODEL_COST
     
     start_time = time.time()    
     
@@ -51,23 +54,53 @@ def model_handler(model_str: str, messages: list[dict]) -> tuple[str, float, flo
         return_tensors="pt",
     ).to(model.device)
 
-    outputs = model.generate(**inputs, max_new_tokens=200)
+    outputs = model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS)
     response = tokenizer.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
     response = extract_json_response(response)
-    print(response)
-    response = json.loads(response)
+    print(response["confidence"])
+
+    # Calculate token usage for cost
+    input_tokens = inputs["input_ids"].shape[1]
+    output_tokens = outputs.shape[1]
+    total_tokens = input_tokens + output_tokens
+    
+    cost = (input_tokens / 1000 * COST["input"]) + \
+           (output_tokens / 1000 * COST["output"])
+           
+    end_time = time.time()
+    latency = end_time - start_time
+    
+    return response["response"], response["confidence"], latency, cost, total_tokens
+
+def summary_model_handler(messages: list[dict]) -> tuple[str, float, float]:
+    """
+    Handles a call to the summary LLM model.
+    Returns the final response, latency and estimated cost.
+    """
+    start_time = time.time()    
+    
+    inputs = large_tokenizer.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        tokenize=True,
+        return_dict=True,
+        return_tensors="pt",
+    ).to(large_model.device)
+
+    outputs = large_model.generate(**inputs, max_new_tokens=MAX_NEW_TOKENS)
+    response = large_tokenizer.decode(outputs[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True)
 
     # Calculate token usage for cost
     input_tokens = inputs["input_ids"].shape[1]
     output_tokens = outputs.shape[1]
     
-    cost = (input_tokens / 1000 * SMALL_MODEL_COST["input"]) + \
-           (output_tokens / 1000 * SMALL_MODEL_COST["output"])
+    cost = (input_tokens / 1000 * LARGE_MODEL_COST["input"]) + \
+           (output_tokens / 1000 * LARGE_MODEL_COST["output"])
            
     end_time = time.time()
     latency = end_time - start_time
     
-    return response["response"], response["confidence"], latency, cost
+    return response, latency, cost
 
 def route_query(messages: list[dict]) -> tuple[str, str, str, float, float]:
     """
@@ -75,8 +108,9 @@ def route_query(messages: list[dict]) -> tuple[str, str, str, float, float]:
     Returns the final response text and metadata components.
     """
     # 1. Always call the small model first
-    small_response, confidence, small_latency, small_cost = model_handler("small", messages)
-    
+    small_response, confidence, small_latency, small_cost, small_tokens = model_handler("small", messages)
+    total_tokens = small_tokens
+
     # 2. Check confidence score
     if confidence >= CONFIDENCE_THRESHOLD:
         # Use small model's response
@@ -87,11 +121,12 @@ def route_query(messages: list[dict]) -> tuple[str, str, str, float, float]:
         confidence_str = f"{confidence:.2f}"
     else:
         # 3. If confidence is low, call the large model
-        large_response, _, large_latency, large_cost = model_handler("large", messages)
+        large_response, _, large_latency, large_cost, large_tokens = model_handler("large", messages)
         model_used = "Large Model"
         final_response = large_response
         total_latency = small_latency + large_latency # Total time includes both calls
         total_cost = small_cost + large_cost # Total cost includes both calls
         confidence_str = f"{confidence:.2f} (rerouted)"
+        total_tokens = large_tokens
 
-    return final_response, model_used, confidence_str, total_latency, total_cost
+    return final_response, model_used, confidence_str, total_latency, total_cost, total_tokens
