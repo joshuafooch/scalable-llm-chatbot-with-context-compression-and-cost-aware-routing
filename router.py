@@ -30,6 +30,7 @@ LARGE_MODEL_COST = {"input": 0.0020, "output": 0.0050}
 
 CONFIDENCE_THRESHOLD = 0.80
 
+# --- Model handlers ---
 def model_handler(model_str: str, messages: list[dict]) -> tuple[str, float, float, float]:
     """
     Handles a call to the small/large LLM model.
@@ -107,11 +108,11 @@ def route_query(messages: list[dict]) -> tuple[str, str, str, float, float]:
     Routes the user's query to the appropriate model based on confidence.
     Returns the final response text and metadata components.
     """
-    # 1. Always call the small model first
+    # Always call the small model first
     small_response, confidence, small_latency, small_cost, small_tokens = model_handler("small", messages)
     total_tokens = small_tokens
 
-    # 2. Check confidence score
+    # Check confidence score
     if confidence >= CONFIDENCE_THRESHOLD:
         # Use small model's response
         model_used = "Small Model"
@@ -120,7 +121,7 @@ def route_query(messages: list[dict]) -> tuple[str, str, str, float, float]:
         total_cost = small_cost
         confidence_str = f"{confidence:.2f}"
     else:
-        # 3. If confidence is low, call the large model
+        # If confidence is low, call the large model
         large_response, _, large_latency, large_cost, large_tokens = model_handler("large", messages)
         model_used = "Large Model"
         final_response = large_response

@@ -2,6 +2,8 @@ import gradio as gr
 from router import route_query, CONFIDENCE_THRESHOLD
 from prompt import build_prompt, add_recent_message, conversation_state
 from summarizer import should_summarize, summarize_convo
+from vectordb import initialize_and_load_vector_db
+from config import DOCUMENT_FILEPATH, COLLECTION_NAME, TOP_K_RETRIEVAL
 
 with gr.Blocks() as demo:
     gr.Markdown("# Cost-Aware Query Routing LLM Chatbot")
@@ -31,6 +33,14 @@ with gr.Blocks() as demo:
         user_message_content = history[-1]["content"][0]["text"]
         add_recent_message("user", user_message_content, conversation_state)
 
+        # Retrieve relevant information from last query (RAG)
+        collection, embeddings_model = initialize_and_load_vector_db(DOCUMENT_FILEPATH, COLLECTION_NAME)
+        query_embedding = embeddings_model.embed_query(user_message_content)
+        retrieved = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=TOP_K_RETRIEVAL
+        )
+
         # Check length of conversation state to trigger summarization
         if should_summarize(conversation_state):
             summary, summary_latency, summary_cost = summarize_convo(conversation_state)
@@ -39,7 +49,7 @@ with gr.Blocks() as demo:
             total_cost += summary_cost
             print("Summarized!")
 
-        prompt = build_prompt(conversation_state)
+        prompt = build_prompt(conversation_state, retrieved["documents"][0])
         
         final_response_text, model_used, confidence_str, latency, cost, total_tokens = route_query(prompt)
         total_latency += latency
