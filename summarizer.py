@@ -6,15 +6,15 @@ from config import MAX_TURNS, MAX_TOKENS_TO_SUMMARIZE
 SUMMARY_PROMPT = """Summarize the conversation based on the
 overarching goal of the user ("user_goal"), the key points of
 discussion, any decisions that the user should make, any constraints,
-and any open questions ("open_questions") that the user has asked but
-have not beed answered. Respond in JSON format:
+and any user-asked questions ("user_questions") that the user has asked but
+have not been answered. Respond in JSON format:
 ```json
 {
 "user_goal": "...",
 "key_points": ["..."],
 "decisions": ["..."],
 "constraints": ["..."],
-"open_questions": ["..."]
+"user_questions": ["..."]
 }
 ```
 
