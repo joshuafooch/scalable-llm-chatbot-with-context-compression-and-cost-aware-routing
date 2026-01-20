@@ -5,7 +5,8 @@ A chatbot built on routing between two different models (small and large) with t
 - Cost-aware model routing based on confidence threshold
 - Context compression via rolling message summarization
 - Bounded token growth for long conversations
-- Retrieval augmented generation (RAG) and relevant guardrails
+- Retrieval augmented generation (RAG) implemented using vector database
+- Guardrails
 - Quantitative evaluation of latency and costs (estimates)
 
 ### Setup
